@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PDF Data Extraction</title>
+</head>
+<body>
+  <input type="file" id="pdf-upload" />
+  <button id="extract-btn">Extract Invoice Data</button>
+  <pre id="output"></pre>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.min.js"></script>
+  <script>
+  const pdfjsLib = window['pdfjs-dist/build/pdf'];
+
+  // Set workerSrc to the PDF.js worker script
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
+
+  document.getElementById('extract-btn').addEventListener('click', function() {
+    const fileInput = document.getElementById('pdf-upload');
+    if (fileInput.files.length > 0) {
+      const file = fileInput.files[0];
+      extractPdfData(file);
+    } else {
+      alert('Please upload a PDF file');
+    }
+  });
+
+  async function extractPdfData(file) {
+    const reader = new FileReader();
+    reader.readAsArrayBuffer(file);
+    
+    reader.onload = async function() {
+      const typedArray = new Uint8Array(reader.result);
+      const pdfDocument = await pdfjsLib.getDocument(typedArray).promise;
+
+      // Process the first page of the PDF
+      const firstPage = await pdfDocument.getPage(1);
+      const textContent = await firstPage.getTextContent();
+
+      // Extract text from the content
+      let extractedText = textContent.items.map(item => item.str).join(' ');
+
+      // Extract key fields using regex
+      let invoiceData = {
+        vendorName: extractField(extractedText, /CPB Software \(Germany\) GmbH - (.*?)(?= -)/),
+        vendorAddress: extractField(extractedText, /Miltenberg\/Main (.*?) Musterkunde AG/),
+        customerName: extractField(extractedText, /Musterkunde AG (.*?) Musterstr/),
+        invoiceNumber: extractField(extractedText, /Invoice No (\d+)/),
+        invoiceDate: extractField(extractedText, /Date (\d{1,2}\. \w+ \d{4})/),
+        vatNumber: extractField(extractedText, /VAT No\. (DE\d+)/),
+        customerNumber: extractField(extractedText, /Customer No (\d+)/),
+        invoicePeriod: extractField(extractedText, /Period: (\d{2}\.\d{2}\.\d{4}) to (\d{2}\.\d{2}\.\d{4})/),
+        subtotal: extractField(extractedText, /Total (.*?) €/, 'numeric'),
+        vat: extractField(extractedText, /VAT 19 % (.*?) €/, 'numeric'),
+        grandTotal: extractField(extractedText, /Gross Amount incl\. VAT (.*?) €/, 'numeric')
+      };
+
+      // Display extracted data
+      document.getElementById('output').textContent = JSON.stringify(invoiceData, null, 2);
+    };
+  }
+
+  // Helper function to extract field using regex
+  function extractField(text, regex, type = 'text') {
+    const match = text.match(regex);
+    if (match) {
+      if (type === 'numeric') {
+        return parseFloat(match[1].replace(',', '.'));
+      }
+      return match[1].trim();
+    }
+    return null;
+  }
+</script>
+</body>
+</html>
